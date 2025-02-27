@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  ## =============== AWS Lambda Function ==================
+  ChatbotFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ChatbotLambda
+      Runtime: java21
+      Handler: com.gkumar.ai.chatbot.aws.lambda.ChatbotLambdaHandlerApiGateway
+      CodeUri: s3://<your-s3-bucket>/chatbot-0.0.1-SNAPSHOT-all.jar  # Replace with your actual S3 bucket & JAR path
+      MemorySize: 512
+      Timeout: 15
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenAiApiKey  # Fetch from AWS SSM Parameter Store
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chatbot/openai_api_key"
+      Events:
+        ChatbotApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ChatbotApi
+            Path: /chat
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth  # Attach Cognito Authorizer
+
+  ## =============== Cognito User Pool ==================
+  ChatbotUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: ChatbotUserPool
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  ChatbotUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: ChatbotAppClient
+      UserPoolId: !Ref ChatbotUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_CUSTOM_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+
+  ## =============== API Gateway ==================
+  ChatbotApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: ChatbotAPI
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoAuth  # Make Cognito the default authorizer
+        Authorizers:
+          CognitoAuth:
+            UserPoolArn: !GetAtt ChatbotUserPool.Arn  # Attach Cognito User Pool
+
+  ## =============== Store OpenAI API Key in AWS SSM ==================
+  OpenAiApiKey:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/chatbot/openai_api_key"
+      Type: String  # Securely store API Key
+      Value: "your-openai-api-key"
+
+Outputs:
+  ChatbotApiUrl:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ChatbotApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/chat"
+  CognitoUserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref ChatbotUserPool
+  CognitoUserPoolClientId:
+    Description: "Cognito User Pool Client ID"
+    Value: !Ref ChatbotUserPoolClient

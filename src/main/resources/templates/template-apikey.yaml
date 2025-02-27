@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  ## =============== AWS Lambda Function ==================
+  ChatbotFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ChatbotLambda
+      Runtime: java21
+      Handler: com.gkumar.ai.chatbot.aws.lambda.ChatbotLambdaHandlerApiGateway
+      CodeUri: s3://<your-s3-bucket>/chatbot-0.0.1-SNAPSHOT-all.jar # Replace with your actual S3 bucket & JAR path
+      MemorySize: 512
+      Timeout: 15
+      Environment:
+        Variables:
+          OPENAI_API_KEY: !Ref OpenAiApiKey  # Fetch from Lambda environment variable
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Statement:
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chatbot/openai_api_key"
+      Events:
+        ChatbotApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ChatbotApi
+            Path: /chat
+            Method: POST
+  ## =============== Store OpenAI API Key in AWS SSM ==================
+  OpenAiApiKey:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/chatbot/openai_api_key"
+      Type: String
+      Value: "your-openai-api-key"  # 🔹 Store securely in AWS SSM Parameter Store
+
+  ChatbotApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: ChatbotAPI
+      StageName: Prod  # Ensure API Gateway Stage is explicitly defined
+      Auth:
+        ApiKeyRequired: true
+
+  ChatbotApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ChatbotApi
+      StageName: Prod  # Ensures stage exists before Usage Plan
+    DependsOn: ChatbotFunction
+
+  ChatbotUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: ChatbotApiDeployment  # Ensures API stage exists before assigning Usage Plan
+    Properties:
+      UsagePlanName: ChatbotUsagePlan
+      ApiStages:
+        - ApiId: !Ref ChatbotApi
+          Stage: Prod  # Ensures API stage exists before referencing it
+      Throttle:
+        RateLimit: 10
+        BurstLimit: 2
+      Quota:
+        Limit: 10000
+        Period: MONTH
+
+  ChatbotApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: ChatbotUsagePlan  # Ensure Usage Plan is created before API Key
+    Properties:
+      Name: ChatbotApiKey
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref ChatbotApi
+          StageName: Prod  # Ensure this matches existing API Gateway Stage
+
+  ChatbotUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    DependsOn: ChatbotApiKey  # Ensure API Key exists before linking to Usage Plan
+    Properties:
+      KeyId: !Ref ChatbotApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ChatbotUsagePlan
+
+Outputs:
+  ChatbotApiUrl:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ChatbotApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/chat"
+  ChatbotApiKey:
+    Description: "API Key for authentication"
+    Value: !Ref ChatbotApiKey

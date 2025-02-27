@@ -1,0 +1,40 @@
+# Compiled class files
+*.class
+*.jar
+*.war
+*.ear
+
+# Log files
+*.log
+
+# Gradle files
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# AWS SAM build artifacts
+.aws-sam/
+packaged.yaml
+
+# Environment variables and credentials
+.env
+*.env
+aws-credentials.json
+
+# SSM
+
